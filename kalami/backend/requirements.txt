@@ -19,15 +19,26 @@ python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 python-dotenv==1.0.0
 
-# AI Services
-openai==1.10.0
-anthropic==0.8.1
-assemblyai==0.17.0
-elevenlabs==0.2.26
+# AI Services (PAID - Optional, comment out if using free alternatives)
+# openai==1.10.0
+# anthropic==0.8.1
+# assemblyai==0.17.0
+# elevenlabs==0.2.26
+
+# FREE AI Services - Local Models (Recommended for zero cost)
+# Speech-to-Text: OpenAI Whisper (FREE, MIT license, runs locally)
+openai-whisper==20231117
+faster-whisper==1.0.0  # Optimized version, 4x faster
+
+# LLM: Ollama Python client (FREE, runs Llama 3 locally)
+ollama==0.1.6
 
 # Audio processing
 pydub==0.25.1
 numpy==1.26.3
+soundfile==0.12.1
+librosa==0.10.1
+pyaudio==0.2.14  # For microphone input
 
 # HTTP client
 httpx==0.26.0

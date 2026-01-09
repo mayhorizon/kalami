@@ -27,18 +27,25 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
-    # AI Services
+    # AI Services (PAID - Optional)
     OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
     ASSEMBLYAI_API_KEY: str = ""
     ELEVENLABS_API_KEY: str = ""
 
-    # Voice Processing
-    STT_PROVIDER: str = "openai"  # openai, assemblyai
-    LLM_PROVIDER: str = "openai"  # openai, anthropic
-    TTS_PROVIDER: str = "openai"  # openai, elevenlabs
+    # Voice Processing Provider Selection
+    # FREE options: whisper-local, ollama, piper
+    # PAID options: openai, assemblyai, anthropic, elevenlabs
+    STT_PROVIDER: str = "whisper-local"  # whisper-local (FREE), faster-whisper (FREE), openai (PAID)
+    LLM_PROVIDER: str = "ollama"  # ollama (FREE), openai (PAID), anthropic (PAID)
+    TTS_PROVIDER: str = "piper"  # piper (FREE), pyttsx3 (FREE), openai (PAID)
 
-    # Model Configuration
+    # FREE Model Configuration
+    WHISPER_MODEL_SIZE: str = "base"  # tiny, base, small, medium, large
+    OLLAMA_MODEL: str = "llama3.2:3b"  # llama3.2:1b, llama3.2:3b, llama3.2, mistral
+    PIPER_VOICES_DIR: str = "./models/piper_voices"
+
+    # PAID Model Configuration (if using paid services)
     OPENAI_MODEL: str = "gpt-4-turbo-preview"
     ANTHROPIC_MODEL: str = "claude-3-opus-20240229"
 

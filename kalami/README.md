@@ -23,20 +23,44 @@ Kalami is an AI-powered vocal assistant that helps you learn new languages throu
 - **Backend**: FastAPI (Python)
 - **Database**: PostgreSQL
 - **Cache**: Redis
-- **AI Services**:
-  - Speech-to-Text: OpenAI Whisper / AssemblyAI
-  - LLM: OpenAI GPT-4 / Anthropic Claude
-  - Text-to-Speech: ElevenLabs / OpenAI TTS
+- **AI Services (100% FREE - runs locally)**:
+  - Speech-to-Text: **OpenAI Whisper** (local, MIT license)
+  - LLM: **Ollama + Llama 3.2** (local, free)
+  - Text-to-Speech: **Piper TTS** (local, fast, neural voices)
+
+> **Zero API Costs!** All AI runs on your machine. No monthly fees.
+>
+> *Optional paid alternatives available: OpenAI, Anthropic, AssemblyAI, ElevenLabs*
 
 ## Quick Start
+
+> **🎉 Want zero cost?** See [FREE_SETUP.md](FREE_SETUP.md) for complete guide using 100% free local AI models!
 
 ### Prerequisites
 
 - Python 3.7+
-- Flutter 3.x
-- PostgreSQL
-- Redis
-- Node.js (for development tools)
+- Flutter 3.x (for mobile app)
+- PostgreSQL (for production)
+- Redis (for production)
+
+### FREE AI Setup (Recommended)
+
+1. **Install Ollama** (for LLM):
+   ```bash
+   curl -fsSL https://ollama.com/install.sh | sh
+   ollama pull llama3.2:3b
+   ollama serve
+   ```
+
+2. **Install Whisper** (for STT):
+   ```bash
+   pip install openai-whisper faster-whisper
+   ```
+
+3. **Download Piper TTS** voices from:
+   https://github.com/rhasspy/piper/releases
+
+See [FREE_SETUP.md](FREE_SETUP.md) for detailed instructions.
 
 ### Backend Setup
 
