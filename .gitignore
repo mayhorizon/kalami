@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Database
+agent-state.db
+*.db
+*.db-journal
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+.npm/
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log
+/tmp/
+
+# Claude Code (keep configs, ignore temp files)
+.claude/session-env/
+.claude/debug/
+.claude/todos/
+.claude/shell-snapshots/
+.claude/statsig/
+.claude/.credentials.json
+.claude.json
+.claude.json.backup

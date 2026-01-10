@@ -1,0 +1,18 @@
+{
+  "hooks": [
+    {
+      "name": "agent-state-logger-pre",
+      "description": "Logs tool call start to agent state database",
+      "event": "PreToolUse",
+      "script": "/home/savetheworld/hooks/pretooluse.py",
+      "enabled": true
+    },
+    {
+      "name": "agent-state-logger-post",
+      "description": "Logs tool call completion and tracks modifications",
+      "event": "PostToolUse",
+      "script": "/home/savetheworld/hooks/posttooluse.py",
+      "enabled": true
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "database": {
+    "path": "/home/savetheworld/agent-state.db",
+    "compression_threshold_bytes": 10240
+  },
+  "logging": {
+    "enabled": true,
+    "track_builtin_agents": true,
+    "track_custom_agents": true,
+    "detail_level": "full"
+  },
+  "hooks": {
+    "pretooluse_enabled": true,
+    "posttooluse_enabled": true
+  },
+  "retention": {
+    "max_age_days": 30,
+    "auto_vacuum": false
+  }
+}
