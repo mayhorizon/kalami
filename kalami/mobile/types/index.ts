@@ -10,15 +10,12 @@ export interface User {
 
 export interface LearningProfile {
   id: string;
-  user_id: string;
   target_language: string;
   cefr_level: CEFRLevel;
-  total_practice_time: number;
+  total_practice_time: number;  // in seconds
   conversation_count: number;
   current_streak: number;
-  longest_streak: number;
-  created_at: string;
-  updated_at: string;
+  vocabulary_mastered: number;
 }
 
 export type CEFRLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
@@ -132,6 +129,7 @@ export interface ResponsePayload {
 export interface AudioPayload {
   audio_base64: string;
   format: string;
+  session_id?: string;
 }
 
 export interface ErrorPayload {

@@ -24,9 +24,10 @@ class LearningProfileResponse(BaseModel):
     id: str
     target_language: str
     cefr_level: str
-    total_speaking_time_seconds: int
+    total_practice_time: int  # in seconds
+    conversation_count: int
+    current_streak: int
     vocabulary_mastered: int
-    streak_days: int
 
     class Config:
         from_attributes = True
@@ -52,10 +53,34 @@ async def get_learning_profiles(
     db: AsyncSession = Depends(get_db)
 ):
     """Get all learning profiles for the current user."""
+    from ..models.conversation import ConversationSession
+
     result = await db.execute(
         select(LearningProfile).where(LearningProfile.user_id == current_user.id)
     )
-    return list(result.scalars().all())
+    profiles = list(result.scalars().all())
+
+    # Get session counts per profile
+    sessions_result = await db.execute(
+        select(ConversationSession).where(ConversationSession.user_id == current_user.id)
+    )
+    sessions = list(sessions_result.scalars().all())
+
+    # Build response with calculated fields
+    response = []
+    for profile in profiles:
+        session_count = sum(1 for s in sessions if s.learning_profile_id == profile.id)
+        response.append(LearningProfileResponse(
+            id=profile.id,
+            target_language=profile.target_language,
+            cefr_level=profile.cefr_level,
+            total_practice_time=profile.total_speaking_time_seconds or 0,
+            conversation_count=session_count,
+            current_streak=profile.streak_days or 0,
+            vocabulary_mastered=profile.vocabulary_mastered or 0,
+        ))
+
+    return response
 
 
 @router.post("/profiles", response_model=LearningProfileResponse, status_code=status.HTTP_201_CREATED)
@@ -89,7 +114,15 @@ async def create_learning_profile(
     await db.commit()
     await db.refresh(profile)
 
-    return profile
+    return LearningProfileResponse(
+        id=profile.id,
+        target_language=profile.target_language,
+        cefr_level=profile.cefr_level,
+        total_practice_time=0,
+        conversation_count=0,
+        current_streak=0,
+        vocabulary_mastered=0,
+    )
 
 
 @router.get("/profiles/{profile_id}", response_model=LearningProfileResponse)

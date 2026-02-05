@@ -1,7 +1,37 @@
 // Zustand store for conversation state
 import { create } from 'zustand';
+import { Platform } from 'react-native';
 import { ConversationSession, ConversationMessage, LearningProfile } from '@/types';
 import apiClient from '@/services/api';
+
+const SELECTED_PROFILE_KEY = 'kalami_selected_profile_id';
+
+// Helper to save/load selected profile ID (web only for now)
+const saveSelectedProfileId = (profileId: string | null) => {
+  try {
+    if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+      if (profileId) {
+        localStorage.setItem(SELECTED_PROFILE_KEY, profileId);
+      } else {
+        localStorage.removeItem(SELECTED_PROFILE_KEY);
+      }
+    }
+  } catch (e) {
+    console.error('Failed to save selected profile:', e);
+  }
+};
+
+const loadSelectedProfileId = (): string | null => {
+  try {
+    if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+      return localStorage.getItem(SELECTED_PROFILE_KEY);
+    }
+    return null;
+  } catch (e) {
+    console.error('Failed to load selected profile:', e);
+    return null;
+  }
+};
 
 interface ConversationState {
   currentSession: ConversationSession | null;
@@ -54,9 +84,13 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         error: null,
       });
 
-      // Auto-select first profile if none selected
+      // Restore previously selected profile or default to first
       if (!get().selectedProfile && profiles.length > 0) {
-        set({ selectedProfile: profiles[0] });
+        const savedProfileId = loadSelectedProfileId();
+        const savedProfile = savedProfileId
+          ? profiles.find(p => p.id === savedProfileId)
+          : null;
+        set({ selectedProfile: savedProfile || profiles[0] });
       }
     } catch (error: any) {
       set({
@@ -69,6 +103,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
   selectProfile: (profile: LearningProfile) => {
     set({ selectedProfile: profile });
+    saveSelectedProfileId(profile.id);  // Persist selection
   },
 
   createProfile: async (targetLanguage: string, cefrLevel: string) => {

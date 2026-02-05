@@ -1,9 +1,18 @@
 // WebSocket client for real-time communication with Kalami gateway
+import { Platform } from 'react-native';
 import { WebSocketMessage, TranscriptionPayload, ResponsePayload, AudioPayload, ErrorPayload } from '@/types';
 
-const WS_BASE_URL = __DEV__
-  ? 'ws://localhost:3000/ws'
-  : 'wss://api.kalami.app/ws';
+// Use your computer's local IP for phone testing
+const LOCAL_IP = '192.168.1.250';
+
+// Use localhost for web, local IP for mobile devices
+const getWsURL = () => {
+  if (!__DEV__) return 'wss://api.kalami.app/ws';
+  if (Platform.OS === 'web') return 'ws://localhost:3000/ws';
+  return `ws://${LOCAL_IP}:3000/ws`;
+};
+
+const WS_BASE_URL = getWsURL();
 
 const HEARTBEAT_INTERVAL = 30000; // 30 seconds
 const RECONNECT_DELAY = 3000; // 3 seconds
@@ -188,12 +197,13 @@ export class WebSocketClient {
     }
   }
 
-  sendAudio(audioBase64: string, format: string = 'm4a'): void {
+  sendAudio(audioBase64: string, format: string = 'm4a', sessionId?: string): void {
     this.send({
       type: 'audio',
       payload: {
         audio_base64: audioBase64,
         format,
+        session_id: sessionId,
       } as AudioPayload,
     });
   }

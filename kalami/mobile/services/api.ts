@@ -1,4 +1,5 @@
 // REST API client for Kalami backend
+import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import {
   User,
@@ -16,11 +17,44 @@ import {
   APIError,
 } from '@/types';
 
-const API_BASE_URL = __DEV__
-  ? 'http://localhost:3000/api'
-  : 'https://api.kalami.app/api';
+// Use your computer's local IP for phone testing
+// Change this IP to match your network (run: hostname -I)
+const LOCAL_IP = '192.168.1.250';
+
+// Use localhost for web, local IP for mobile devices
+const getBaseURL = () => {
+  if (!__DEV__) return 'https://api.kalami.app/api';
+  if (Platform.OS === 'web') return 'http://localhost:8000';
+  return `http://${LOCAL_IP}:8000`;
+};
+
+const API_BASE_URL = getBaseURL();
 
 const TOKEN_KEY = 'kalami_auth_token';
+
+// Storage abstraction for web/native compatibility
+const storage = {
+  async getItem(key: string): Promise<string | null> {
+    if (Platform.OS === 'web') {
+      return localStorage.getItem(key);
+    }
+    return SecureStore.getItemAsync(key);
+  },
+  async setItem(key: string, value: string): Promise<void> {
+    if (Platform.OS === 'web') {
+      localStorage.setItem(key, value);
+      return;
+    }
+    await SecureStore.setItemAsync(key, value);
+  },
+  async removeItem(key: string): Promise<void> {
+    if (Platform.OS === 'web') {
+      localStorage.removeItem(key);
+      return;
+    }
+    await SecureStore.deleteItemAsync(key);
+  },
+};
 
 class APIClient {
   private baseURL: string;
@@ -32,7 +66,7 @@ class APIClient {
   // Token management
   async getToken(): Promise<string | null> {
     try {
-      return await SecureStore.getItemAsync(TOKEN_KEY);
+      return await storage.getItem(TOKEN_KEY);
     } catch (error) {
       console.error('Failed to retrieve token:', error);
       return null;
@@ -41,7 +75,7 @@ class APIClient {
 
   async setToken(token: string): Promise<void> {
     try {
-      await SecureStore.setItemAsync(TOKEN_KEY, token);
+      await storage.setItem(TOKEN_KEY, token);
     } catch (error) {
       console.error('Failed to store token:', error);
       throw error;
@@ -50,7 +84,7 @@ class APIClient {
 
   async removeToken(): Promise<void> {
     try {
-      await SecureStore.deleteItemAsync(TOKEN_KEY);
+      await storage.removeItem(TOKEN_KEY);
     } catch (error) {
       console.error('Failed to remove token:', error);
     }
@@ -117,23 +151,69 @@ class APIClient {
 
   // Authentication endpoints
   async register(data: RegisterRequest): Promise<LoginResponse> {
-    const response = await this.request<LoginResponse>('/auth/register', {
+    // Register the user (returns UserResponse, not token)
+    await this.request('/auth/register', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        email: data.email,
+        password: data.password,
+        native_language: data.native_language,
+      }),
     });
 
-    await this.setToken(response.access_token);
-    return response;
+    // Now login to get the token
+    return this.login({ email: data.email, password: data.password });
   }
 
   async login(data: LoginRequest): Promise<LoginResponse> {
-    const response = await this.request<LoginResponse>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    // Backend expects OAuth2 form data, not JSON
+    const formData = new URLSearchParams();
+    formData.append('username', data.email);  // OAuth2 uses 'username' field
+    formData.append('password', data.password);
 
-    await this.setToken(response.access_token);
-    return response;
+    const url = `${this.baseURL}/auth/login`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formData.toString(),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({
+          message: response.statusText,
+        }));
+        const error: APIError = {
+          message: errorData.detail || errorData.message || 'Login failed',
+          status: response.status,
+        };
+        throw error;
+      }
+
+      const tokenResponse = await response.json();
+      await this.setToken(tokenResponse.access_token);
+
+      // Fetch user data after login
+      const user = await this.getCurrentUser();
+
+      return {
+        access_token: tokenResponse.access_token,
+        token_type: tokenResponse.token_type,
+        user,
+      };
+    } catch (error) {
+      if ((error as APIError).status) {
+        throw error;
+      }
+      const apiError: APIError = {
+        message: error instanceof Error ? error.message : 'Network error',
+        status: 0,
+      };
+      throw apiError;
+    }
   }
 
   async logout(): Promise<void> {

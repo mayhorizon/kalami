@@ -237,13 +237,28 @@ export function useAudio(options: UseAudioOptions = {}): UseAudioReturn {
 
   const playAudioFromBase64 = useCallback(async (base64: string, format: string = 'm4a') => {
     try {
-      // Write base64 to temporary file
-      const tempUri = `${FileSystem.cacheDirectory}temp_audio.${format}`;
-      await FileSystem.writeAsStringAsync(tempUri, base64, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
+      let uri: string;
 
-      await playAudio(tempUri);
+      if (Platform.OS === 'web') {
+        // On web, create a blob URL from base64
+        const mimeType = format === 'webm' ? 'audio/webm' : 'audio/mp4';
+        const byteCharacters = atob(base64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: mimeType });
+        uri = URL.createObjectURL(blob);
+      } else {
+        // On native, write base64 to temporary file
+        uri = `${FileSystem.cacheDirectory}temp_audio.${format}`;
+        await FileSystem.writeAsStringAsync(uri, base64, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+      }
+
+      await playAudio(uri);
     } catch (error) {
       console.error('Failed to play audio from base64:', error);
       options.onError?.(error as Error);
@@ -296,10 +311,28 @@ export function useAudio(options: UseAudioOptions = {}): UseAudioReturn {
   // Utility functions
   const getAudioBase64 = useCallback(async (uri: string): Promise<string> => {
     try {
-      const base64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      return base64;
+      if (Platform.OS === 'web') {
+        // On web, the URI is a blob URL - fetch it and convert to base64
+        const response = await fetch(uri);
+        const blob = await response.blob();
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const base64String = reader.result as string;
+            // Remove the data URL prefix (e.g., "data:audio/webm;base64,")
+            const base64 = base64String.split(',')[1];
+            resolve(base64);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      } else {
+        // On native, use expo-file-system
+        const base64 = await FileSystem.readAsStringAsync(uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        return base64;
+      }
     } catch (error) {
       console.error('Failed to convert audio to base64:', error);
       options.onError?.(error as Error);
@@ -310,7 +343,13 @@ export function useAudio(options: UseAudioOptions = {}): UseAudioReturn {
   const clearRecording = useCallback(async () => {
     try {
       if (recording.uri) {
-        await FileSystem.deleteAsync(recording.uri, { idempotent: true });
+        if (Platform.OS === 'web') {
+          // On web, revoke the blob URL
+          URL.revokeObjectURL(recording.uri);
+        } else {
+          // On native, delete the file
+          await FileSystem.deleteAsync(recording.uri, { idempotent: true });
+        }
       }
 
       setRecording({

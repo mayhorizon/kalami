@@ -6,7 +6,7 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  Alert,
+  Platform,
   ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -19,6 +19,23 @@ import { AudioRecorder } from '@/components/AudioRecorder';
 import { ConversationBubble } from '@/components/ConversationBubble';
 import { WaveformVisualizer } from '@/components/WaveformVisualizer';
 import { ConversationMessage } from '@/types';
+
+// Cross-platform confirm dialog
+const confirmAction = (title: string, message: string, onConfirm: () => void) => {
+  if (Platform.OS === 'web') {
+    if (window.confirm(`${title}\n\n${message}`)) {
+      onConfirm();
+    }
+  } else {
+    // Use dynamic import to avoid web bundling issues
+    import('react-native').then(({ Alert }) => {
+      Alert.alert(title, message, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Confirm', style: 'destructive', onPress: onConfirm },
+      ]);
+    });
+  }
+};
 
 export default function ConversationScreen() {
   const router = useRouter();
@@ -41,10 +58,21 @@ export default function ConversationScreen() {
     setIsSpeaking,
   } = useConversationStore();
 
+  const [error, setError] = useState<string | null>(null);
+
   const { isConnected, sendAudio } = useWebSocket({
     autoConnect: true,
-    onError: (error) => {
-      Alert.alert('Connection Error', error);
+    onError: (err) => {
+      console.error('Connection error:', err);
+      setError(`Connection Error: ${err}`);
+    },
+    onAudioReceived: async (audioBase64, format) => {
+      console.log('Playing AI audio response, format:', format);
+      try {
+        await playAudioFromBase64(audioBase64);
+      } catch (err: any) {
+        console.error('Failed to play AI audio:', err);
+      }
     },
   });
 
@@ -52,18 +80,27 @@ export default function ConversationScreen() {
     onPlaybackComplete: () => {
       setPlayingMessageId(null);
     },
-    onError: (error) => {
-      console.error('Audio playback error:', error);
-      Alert.alert('Playback Error', error.message);
+    onError: (err) => {
+      console.error('Audio playback error:', err);
+      setError(`Playback Error: ${err.message}`);
     },
   });
 
   // Load profiles on mount
   useEffect(() => {
-    loadProfiles().catch(error => {
-      Alert.alert('Error', 'Failed to load learning profiles');
+    loadProfiles().catch(err => {
+      console.error('Failed to load profiles:', err);
+      setError('Failed to load learning profiles');
     });
   }, [loadProfiles]);
+
+  // Clear error after 5 seconds
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -72,52 +109,75 @@ export default function ConversationScreen() {
     }
   }, [messages]);
 
-  // Start session when profile is selected
+  // Track if we're currently starting a session to prevent duplicates
+  const isStartingSessionRef = useRef(false);
+
+  // Start session when profile is selected or changed
   useEffect(() => {
-    if (selectedProfile && !currentSession) {
-      handleStartSession();
+    if (!selectedProfile) return;
+    if (isStartingSessionRef.current) return;
+
+    // Check if we need a new session (no session or wrong profile)
+    const needsNewSession = !currentSession ||
+      currentSession.profile_id !== selectedProfile.id;
+
+    if (needsNewSession) {
+      isStartingSessionRef.current = true;
+
+      const startNew = async () => {
+        try {
+          if (currentSession) {
+            await endSession();
+          }
+          await handleStartSession();
+        } finally {
+          isStartingSessionRef.current = false;
+        }
+      };
+
+      startNew();
     }
-  }, [selectedProfile, currentSession]);
+  }, [selectedProfile?.id]);
 
   const handleStartSession = async () => {
     try {
       await startSession();
-    } catch (error: any) {
-      Alert.alert('Error', 'Failed to start conversation session');
+    } catch (err: any) {
+      console.error('Failed to start session:', err);
+      setError('Failed to start conversation session');
     }
   };
 
   const handleEndSession = async () => {
-    Alert.alert(
+    confirmAction(
       'End Session',
       'Are you sure you want to end this conversation?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'End',
-          style: 'destructive',
-          onPress: async () => {
-            await endSession();
-          },
-        },
-      ]
+      async () => {
+        await endSession();
+        router.push('/(main)/profile');
+      }
     );
   };
 
   const handleRecordingComplete = async (audioBase64: string, format: string) => {
     if (!isConnected) {
-      Alert.alert('Not Connected', 'Please wait for connection to be established');
+      setError('Not connected. Please wait for connection to be established.');
+      return;
+    }
+
+    if (!currentSession) {
+      setError('No active session. Please wait for session to start.');
       return;
     }
 
     setIsSpeaking(true);
 
     try {
-      // Send audio via WebSocket
-      sendAudio(audioBase64, format);
-    } catch (error: any) {
-      console.error('Failed to send audio:', error);
-      Alert.alert('Error', 'Failed to send audio. Please try again.');
+      // Send audio via WebSocket with session ID
+      sendAudio(audioBase64, format, currentSession.id);
+    } catch (err: any) {
+      console.error('Failed to send audio:', err);
+      setError('Failed to send audio. Please try again.');
       setIsSpeaking(false);
     }
   };
@@ -141,20 +201,13 @@ export default function ConversationScreen() {
   };
 
   const handleLogout = async () => {
-    Alert.alert(
+    confirmAction(
       'Logout',
       'Are you sure you want to logout?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            await logout();
-            router.replace('/(auth)/login');
-          },
-        },
-      ]
+      async () => {
+        await logout();
+        router.replace('/(auth)/login');
+      }
     );
   };
 
@@ -218,6 +271,15 @@ export default function ConversationScreen() {
       <View style={styles.container}>
         {renderHeader()}
 
+        {error && (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorBannerText}>{error}</Text>
+            <TouchableOpacity onPress={() => setError(null)}>
+              <Text style={styles.errorDismiss}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         <FlatList
           ref={flatListRef}
           data={messages}
@@ -251,8 +313,9 @@ export default function ConversationScreen() {
         <View style={styles.inputContainer}>
           <AudioRecorder
             onRecordingComplete={handleRecordingComplete}
-            onError={(error) => {
-              Alert.alert('Recording Error', error.message);
+            onError={(err) => {
+              console.error('Recording error:', err);
+              setError(`Recording Error: ${err.message}`);
             }}
             disabled={!isConnected || isSpeaking}
           />
@@ -420,5 +483,25 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  errorBanner: {
+    backgroundColor: '#FFEBEE',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F44336',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  errorBannerText: {
+    color: '#C62828',
+    fontSize: 14,
+    flex: 1,
+  },
+  errorDismiss: {
+    color: '#C62828',
+    fontSize: 18,
+    paddingLeft: 12,
   },
 });

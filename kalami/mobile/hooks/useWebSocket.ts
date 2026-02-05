@@ -1,5 +1,5 @@
 // Custom hook for WebSocket connection management
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useCallback, useRef, useState } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import { useConversationStore } from '@/store/conversationStore';
 import { wsClient } from '@/services/websocket';
@@ -10,6 +10,7 @@ interface UseWebSocketOptions {
   onConnected?: () => void;
   onDisconnected?: () => void;
   onError?: (error: string) => void;
+  onAudioReceived?: (audioBase64: string, format: string) => void;
 }
 
 interface UseWebSocketReturn {
@@ -24,16 +25,21 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const isAuthenticated = useAuthStore(state => state.isAuthenticated);
   const setCurrentTranscription = useConversationStore(state => state.setCurrentTranscription);
   const addMessage = useConversationStore(state => state.addMessage);
+  const setIsSpeaking = useConversationStore(state => state.setIsSpeaking);
 
-  const isConnectedRef = useRef(false);
+  const [isConnected, setIsConnected] = useState(false);
   const hasConnectedRef = useRef(false);
+
+  // Store callbacks in refs to avoid effect re-runs
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
   // Message handler
   const handleMessage = useCallback((message: WebSocketMessage) => {
     switch (message.type) {
       case 'connected':
         console.log('WebSocket connected:', message.payload);
-        options.onConnected?.();
+        optionsRef.current.onConnected?.();
         break;
 
       case 'transcription':
@@ -46,7 +52,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         // If final transcription, create user message
         if (transcription.is_final) {
           const userMessage: ConversationMessage = {
-            id: `temp-${Date.now()}`,
+            id: `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             session_id: '', // Will be set by backend
             role: 'user',
             content_text: transcription.text,
@@ -58,10 +64,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         break;
 
       case 'response':
-        // AI response received
+        // AI response received - reset speaking state
+        setIsSpeaking(false);
         const response = message.payload;
         const assistantMessage: ConversationMessage = {
-          id: `temp-${Date.now()}`,
+          id: `assistant-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           session_id: '',
           role: 'assistant',
           content_text: response.text,
@@ -72,38 +79,43 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         break;
 
       case 'audio':
-        // Audio response received - will be handled by conversation screen
+        // Audio response received - play it
         console.log('Audio response received');
+        const audioPayload = message.payload as { audio_base64: string; format: string };
+        if (audioPayload?.audio_base64) {
+          optionsRef.current.onAudioReceived?.(audioPayload.audio_base64, audioPayload.format || 'mp3');
+        }
         break;
 
       case 'error':
         console.error('WebSocket error:', message.payload);
-        options.onError?.(message.payload.message);
+        setIsSpeaking(false);  // Allow user to retry
+        optionsRef.current.onError?.(message.payload.message);
         break;
 
       default:
         console.log('Unknown WebSocket message type:', message.type);
     }
-  }, [setCurrentTranscription, addMessage, options]);
+  }, [setCurrentTranscription, addMessage, setIsSpeaking]);
 
   // Connection status handler
   const handleConnection = useCallback((connected: boolean) => {
-    isConnectedRef.current = connected;
+    setIsConnected(connected);
 
     if (connected) {
       hasConnectedRef.current = true;
-      options.onConnected?.();
+      optionsRef.current.onConnected?.();
     } else {
-      options.onDisconnected?.();
+      optionsRef.current.onDisconnected?.();
     }
-  }, [options]);
+  }, []);
 
   // Connect function
   const connect = useCallback(async () => {
     try {
-      const token = await useAuthStore.getState().user;
+      const user = useAuthStore.getState().user;
 
-      if (!token) {
+      if (!user) {
         console.error('Cannot connect WebSocket: not authenticated');
         return;
       }
@@ -120,9 +132,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       wsClient.connect(jwtToken);
     } catch (error) {
       console.error('Failed to connect WebSocket:', error);
-      options.onError?.('Failed to establish connection');
+      optionsRef.current.onError?.('Failed to establish connection');
     }
-  }, [options]);
+  }, []);
 
   // Disconnect function
   const disconnect = useCallback(() => {
@@ -131,15 +143,15 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   }, []);
 
   // Send audio function
-  const sendAudio = useCallback((audioBase64: string, format: string = 'm4a') => {
-    if (!isConnectedRef.current) {
+  const sendAudio = useCallback((audioBase64: string, format: string = 'm4a', sessionId?: string) => {
+    if (!wsClient.getConnectionStatus()) {
       console.error('Cannot send audio: WebSocket not connected');
-      options.onError?.('Not connected to server');
+      optionsRef.current.onError?.('Not connected to server');
       return;
     }
 
-    wsClient.sendAudio(audioBase64, format);
-  }, [options]);
+    wsClient.sendAudio(audioBase64, format, sessionId);
+  }, []);
 
   // Setup WebSocket listeners
   useEffect(() => {
@@ -158,15 +170,24 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       connect();
     }
 
+    // Only disconnect on unmount, not on every re-render
     return () => {
-      if (autoConnect) {
-        disconnect();
+      // Don't disconnect on re-renders, only when component fully unmounts
+    };
+  }, [autoConnect, isAuthenticated, connect]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (hasConnectedRef.current) {
+        wsClient.disconnect();
+        hasConnectedRef.current = false;
       }
     };
-  }, [autoConnect, isAuthenticated, connect, disconnect]);
+  }, []);
 
   return {
-    isConnected: isConnectedRef.current,
+    isConnected,
     connect,
     disconnect,
     sendAudio,

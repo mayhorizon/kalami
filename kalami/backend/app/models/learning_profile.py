@@ -1,7 +1,8 @@
 """Learning profile model for tracking language learning progress."""
 import uuid
-from datetime import datetime
-from sqlalchemy import String, Integer, DateTime, ForeignKey, UniqueConstraint
+from datetime import datetime, date
+from typing import Optional
+from sqlalchemy import String, Integer, DateTime, Date, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..core.database import Base
@@ -26,6 +27,7 @@ class LearningProfile(Base):
     total_speaking_time_seconds: Mapped[int] = mapped_column(Integer, default=0)
     vocabulary_mastered: Mapped[int] = mapped_column(Integer, default=0)
     streak_days: Mapped[int] = mapped_column(Integer, default=0)
+    last_practice_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Relationships

@@ -6,7 +6,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Alert,
+  Platform,
   ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -14,6 +14,17 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '@/store/authStore';
 import { useConversationStore } from '@/store/conversationStore';
 import { LearningProfile, CEFRLevel } from '@/types';
+
+// Cross-platform alert helper
+const showAlert = (title: string, message: string) => {
+  if (Platform.OS === 'web') {
+    window.alert(`${title}\n\n${message}`);
+  } else {
+    import('react-native').then(({ Alert }) => {
+      Alert.alert(title, message);
+    });
+  }
+};
 
 const LANGUAGES = [
   { code: 'es', name: 'Spanish', flag: '🇪🇸' },
@@ -55,18 +66,18 @@ export default function ProfileScreen() {
 
   useEffect(() => {
     loadProfiles().catch(error => {
-      Alert.alert('Error', 'Failed to load profiles');
+      showAlert('Error', 'Failed to load profiles');
     });
   }, [loadProfiles]);
 
   const handleSelectProfile = (profile: LearningProfile) => {
     selectProfile(profile);
-    router.back();
+    router.push('/(main)/conversation');
   };
 
   const handleCreateProfile = async () => {
     if (!newLanguage) {
-      Alert.alert('Error', 'Please select a language');
+      showAlert('Error', 'Please select a language');
       return;
     }
 
@@ -75,9 +86,9 @@ export default function ProfileScreen() {
       setShowCreateForm(false);
       setNewLanguage('');
       setNewLevel('A1');
-      Alert.alert('Success', 'Learning profile created successfully');
+      showAlert('Success', 'Learning profile created successfully');
     } catch (error: any) {
-      Alert.alert('Error', 'Failed to create profile');
+      showAlert('Error', 'Failed to create profile');
     }
   };
 
@@ -147,12 +158,11 @@ export default function ProfileScreen() {
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <View style={styles.userSection}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{user?.name.charAt(0).toUpperCase()}</Text>
+              <Text style={styles.avatarText}>{user?.email?.charAt(0).toUpperCase() || '?'}</Text>
             </View>
-            <Text style={styles.userName}>{user?.name}</Text>
             <Text style={styles.userEmail}>{user?.email}</Text>
             <Text style={styles.nativeLanguage}>
-              Native: {user?.native_language.toUpperCase()}
+              Native: {user?.native_language?.toUpperCase() || 'EN'}
             </Text>
           </View>
 

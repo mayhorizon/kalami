@@ -193,6 +193,91 @@ async def synthesize_speech_stream(
         raise HTTPException(status_code=500, detail=f"Streaming synthesis failed: {str(e)}")
 
 
+@router.get("/test-speak")
+async def test_speak(
+    text: str = "Hola, bienvenido a Kalami. ¿Cómo estás hoy?",
+    language: str = "es",
+    provider: str = "elevenlabs"
+):
+    """Public test endpoint - no auth required!
+
+    Try it in your browser:
+    http://localhost:8000/speech/test-speak?text=Hello%20world&language=en
+    """
+    if provider not in ["elevenlabs", "openai"]:
+        raise HTTPException(status_code=400, detail="Invalid provider")
+
+    tts = get_tts_service(provider)
+
+    try:
+        result = await tts.synthesize(
+            text=text,
+            language=language,
+            style=VoiceStyle.FRIENDLY
+        )
+
+        return Response(
+            content=result.audio_data,
+            media_type="audio/mpeg",
+            headers={
+                "Content-Disposition": "inline; filename=test.mp3"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"TTS failed: {str(e)}")
+
+
+@router.get("/speak")
+async def speak_text(
+    text: str,
+    language: str = "es",
+    provider: str = "elevenlabs",
+    style: str = "friendly",
+    current_user: User = Depends(get_current_user)
+):
+    """Convert text to speech and return audio directly.
+
+    Open this URL in a browser to hear the audio!
+
+    Args:
+        text: Text to speak
+        language: Language code (es, en, fr, etc.)
+        provider: TTS provider ('elevenlabs' or 'openai')
+        style: Voice style (neutral, friendly, encouraging, slow)
+
+    Returns:
+        MP3 audio file
+    """
+    if provider not in ["elevenlabs", "openai"]:
+        raise HTTPException(status_code=400, detail="Invalid provider")
+
+    style_map = {
+        "neutral": VoiceStyle.NEUTRAL,
+        "friendly": VoiceStyle.FRIENDLY,
+        "encouraging": VoiceStyle.ENCOURAGING,
+        "slow": VoiceStyle.SLOW
+    }
+
+    tts = get_tts_service(provider)
+
+    try:
+        result = await tts.synthesize(
+            text=text,
+            language=language,
+            style=style_map.get(style.lower(), VoiceStyle.FRIENDLY)
+        )
+
+        return Response(
+            content=result.audio_data,
+            media_type="audio/mpeg",
+            headers={
+                "Content-Disposition": f"inline; filename=speech.mp3"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"TTS failed: {str(e)}")
+
+
 @router.get("/voices")
 async def list_voices(
     provider: str = "elevenlabs",

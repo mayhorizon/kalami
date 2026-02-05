@@ -16,6 +16,7 @@ import { verifyWsToken } from '../middleware/auth.js';
 interface ClientConnection {
   id: string;
   userId: string;
+  token: string;
   ws: WebSocket;
   sessionId?: string;
   isAlive: boolean;
@@ -71,6 +72,7 @@ export class WebSocketService {
     const client: ClientConnection = {
       id: connectionId,
       userId: auth.userId,
+      token: token,
       ws,
       isAlive: true,
       lastActivity: new Date(),
@@ -153,6 +155,16 @@ export class WebSocketService {
         this.send(client.ws, { type: 'pong' });
         break;
 
+      case 'heartbeat':
+        // Respond to heartbeat from client
+        this.send(client.ws, { type: 'heartbeat', payload: { pong: true } });
+        break;
+
+      case 'audio':
+        // Handle audio data sent as JSON with base64
+        this.handleAudioMessage(client, message.payload as { audio_base64: string; format: string });
+        break;
+
       default:
         logger.warn({ type: message.type }, 'Unknown message type');
     }
@@ -180,7 +192,7 @@ export class WebSocketService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          // Pass through user auth
+          'Authorization': `Bearer ${client.token}`,
         },
         body: JSON.stringify({
           profile_id: payload.profileId,
@@ -227,6 +239,118 @@ export class WebSocketService {
       type: 'processing',
       payload: { stage: 'transcribing' },
     });
+  }
+
+  private async handleAudioMessage(
+    client: ClientConnection,
+    payload: { audio_base64: string; format: string; session_id?: string }
+  ): Promise<void> {
+    const sessionId = payload.session_id || client.sessionId;
+
+    if (!sessionId) {
+      this.send(client.ws, {
+        type: 'error',
+        payload: { message: 'No active session. Start a session first.' },
+      });
+      return;
+    }
+
+    logger.info({ clientId: client.id, format: payload.format, sessionId }, 'Processing audio');
+
+    // Notify client we're processing
+    this.send(client.ws, {
+      type: 'processing',
+      payload: { stage: 'transcribing' },
+    });
+
+    try {
+      // Convert base64 to buffer
+      const audioBuffer = Buffer.from(payload.audio_base64, 'base64');
+
+      logger.info({ clientId: client.id, audioSize: audioBuffer.length }, 'Audio buffer created');
+
+      // Create multipart form data manually for Node.js compatibility
+      const boundary = '----WebKitFormBoundary' + Math.random().toString(36).substring(2);
+      const filename = `recording.${payload.format}`;
+      const contentType = payload.format === 'webm' ? 'audio/webm' : `audio/${payload.format}`;
+
+      // Build multipart body
+      const parts: Buffer[] = [];
+
+      // Add audio file part
+      parts.push(Buffer.from(
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="audio"; filename="${filename}"\r\n` +
+        `Content-Type: ${contentType}\r\n\r\n`
+      ));
+      parts.push(audioBuffer);
+      parts.push(Buffer.from('\r\n'));
+
+      // End boundary
+      parts.push(Buffer.from(`--${boundary}--\r\n`));
+
+      const body = Buffer.concat(parts);
+
+      // Send to backend for processing (STT -> LLM -> TTS)
+      const response = await fetch(`${config.backendUrl}/conversations/sessions/${sessionId}/audio`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${client.token}`,
+          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        },
+        body: body,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Backend error: ${response.status} - ${errorText}`);
+      }
+
+      const result = await response.json() as {
+        user_text: string;
+        assistant_text: string;
+        assistant_audio_base64?: string;
+        corrections?: Array<{ original: string; corrected: string; explanation: string }>;
+      };
+
+      // Send transcription
+      this.send(client.ws, {
+        type: 'transcription',
+        payload: {
+          text: result.user_text,
+          is_final: true,
+        },
+      });
+
+      // Send AI response
+      this.send(client.ws, {
+        type: 'response',
+        payload: {
+          text: result.assistant_text,
+          grammar_corrections: result.corrections || [],
+        },
+      });
+
+      // Send audio response if available
+      if (result.assistant_audio_base64) {
+        this.send(client.ws, {
+          type: 'audio',
+          payload: {
+            audio_base64: result.assistant_audio_base64,
+            format: 'mp3',
+          },
+        });
+      }
+
+      logger.info({ clientId: client.id }, 'Audio processing complete');
+
+    } catch (error) {
+      logger.error({ error, clientId: client.id }, 'Failed to process audio');
+      this.send(client.ws, {
+        type: 'error',
+        payload: { message: 'Failed to process audio. Please try again.' },
+      });
+    }
   }
 
   private send(ws: WebSocket, message: WsMessage): void {

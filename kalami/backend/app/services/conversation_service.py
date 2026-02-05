@@ -7,12 +7,30 @@ This is the core service that:
 - Provides pronunciation and grammar feedback
 """
 import json
+import re
 from datetime import datetime
 from typing import Optional, List, AsyncIterator
 from dataclasses import dataclass
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+
+
+def strip_pronunciation_guides(text: str) -> str:
+    """Remove pinyin, romaji, and other pronunciation guides in parentheses for TTS.
+
+    Examples:
+        "你好 (nǐ hǎo)" -> "你好"
+        "こんにちは (konnichiwa)" -> "こんにちは"
+        "Hello (你好 - nǐ hǎo)" -> "Hello"
+    """
+    # Remove content in parentheses (pinyin, romaji, romanization)
+    text = re.sub(r'\s*\([^)]*\)', '', text)
+    # Remove content in brackets
+    text = re.sub(r'\s*\[[^\]]*\]', '', text)
+    # Clean up extra whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
 from ..core.config import settings
 from ..models.user import User
@@ -44,40 +62,60 @@ USER PROFILE:
 - Proficiency level: {cefr_level} (A1-C2 scale)
 - Target language: {target_language}
 
-CONVERSATION RULES:
-1. Speak primarily in {target_language} at a complexity appropriate for {cefr_level} level
-2. When the user makes errors, provide gentle corrections using the sandwich method (positive - correction - positive)
-3. Introduce 2-3 new vocabulary items naturally in each response
-4. Ask follow-up questions to extend the conversation
-5. Adjust difficulty based on user's responses
-6. For beginners (A1-A2), include translations in parentheses for new words
-7. Be encouraging and celebrate progress
+CONVERSATION STYLE - LEVEL-BASED APPROACH:
 
-CORRECTION FORMAT:
-- Minor errors: Continue naturally, correct inline
-- Major errors: Pause, explain briefly, provide the correct form
-- Pronunciation hints: Use simple phonetic guides when helpful
+FOR BEGINNERS (A1-A2):
+- Mix {native_language} and {target_language} in your responses
+- Use 40% {target_language}, 60% {native_language}
+- Explain all grammar and vocabulary in {native_language}
+- Provide translations for all new phrases
+
+FOR INTERMEDIATE (B1):
+- Use 70% {target_language}, 30% {native_language}
+- Explain complex grammar in {native_language}
+- Only translate difficult or new vocabulary
+
+FOR UPPER-INTERMEDIATE AND ADVANCED (B2, C1, C2):
+- Speak ONLY in {target_language} - DO NOT use {native_language} unless the user explicitly asks
+- If the user says "I don't understand" or asks for help in {native_language}, then briefly explain and return to {target_language}
+- Corrections and explanations should also be in {target_language}
+- Treat the user as a near-fluent speaker who needs immersion practice
+
+READING AIDS FOR NON-LATIN SCRIPTS (ALL LEVELS):
+- For Chinese: Include pinyin in parentheses: 你好 (nǐ hǎo)
+- For Japanese: Include romaji in parentheses: こんにちは (konnichiwa)
+- For Korean: Include romanization: 안녕하세요 (annyeonghaseyo)
+- For Arabic, Thai, Russian, etc.: Include romanization
+- Note: For B2+ levels, you may reduce frequency of pronunciation aids for common words
+
+CONVERSATION RULES:
+1. Adjust your language use based on the {cefr_level} level as described above
+2. Provide pronunciation guides (pinyin/romaji) for non-Latin scripts
+3. For A1-B1: Explain grammar and new words in {native_language}
+4. For B2+: Explain everything in {target_language} unless user asks for help
+5. Introduce 2-3 new vocabulary items naturally
+6. Ask follow-up questions to extend the conversation
+7. Be encouraging and celebrate progress
 
 RESPONSE FORMAT:
 Always respond in this JSON structure:
 {{
-    "response": "Your conversational response in {target_language}",
-    "translation": "English translation (only for A1-A2 levels)",
+    "response": "Your response in {target_language} (with pinyin/romaji if applicable). For A1-B1: include {native_language} explanations. For B2+: use only {target_language}",
     "corrections": [
         {{
             "original": "what user said wrong",
-            "corrected": "correct form",
-            "explanation": "brief explanation"
+            "corrected": "correct form (with pronunciation guide)",
+            "explanation": "For A1-B1: explain in {native_language}. For B2+: explain in {target_language}"
         }}
     ],
     "new_vocabulary": [
         {{
-            "word": "new word",
-            "translation": "translation",
+            "word": "new word (with pinyin/romaji)",
+            "translation": "translation (For B2+: can be in {target_language} using simpler words)",
             "example": "example sentence"
         }}
     ],
-    "encouragement": "brief encouraging note (optional)"
+    "encouragement": "brief encouraging note (For B2+: in {target_language})"
 }}
 
 Current topic: {topic}
@@ -136,6 +174,39 @@ Current topic: {topic}
             delta = session.ended_at - session.started_at
             session.duration_seconds = int(delta.total_seconds())
 
+            # Update learning profile stats
+            profile_result = await self.db.execute(
+                select(LearningProfile).where(
+                    LearningProfile.id == session.learning_profile_id
+                )
+            )
+            profile = profile_result.scalar_one_or_none()
+
+            if profile and session.duration_seconds:
+                # Add session duration to total speaking time
+                profile.total_speaking_time_seconds = (
+                    (profile.total_speaking_time_seconds or 0) + session.duration_seconds
+                )
+
+                # Update streak
+                today = datetime.utcnow().date()
+                if profile.last_practice_date:
+                    days_diff = (today - profile.last_practice_date).days
+                    if days_diff == 0:
+                        # Already practiced today, streak unchanged
+                        pass
+                    elif days_diff == 1:
+                        # Consecutive day, increment streak
+                        profile.streak_days = (profile.streak_days or 0) + 1
+                    else:
+                        # Streak broken, reset to 1
+                        profile.streak_days = 1
+                else:
+                    # First practice ever
+                    profile.streak_days = 1
+
+                profile.last_practice_date = today
+
         await self.db.commit()
         await self.db.refresh(session)
 
@@ -191,9 +262,13 @@ Current topic: {topic}
 
         Supports both OpenAI and Anthropic APIs.
         """
-        if settings.ANTHROPIC_API_KEY:
+        # Check for valid API keys (not empty, not placeholder)
+        has_anthropic = settings.ANTHROPIC_API_KEY and settings.ANTHROPIC_API_KEY.startswith("sk-ant-")
+        has_openai = settings.OPENAI_API_KEY and settings.OPENAI_API_KEY.startswith("sk-")
+
+        if has_anthropic:
             return await self._call_anthropic(messages)
-        elif settings.OPENAI_API_KEY:
+        elif has_openai:
             return await self._call_openai(messages)
         else:
             raise ValueError("No LLM API key configured. Set ANTHROPIC_API_KEY or OPENAI_API_KEY.")
@@ -348,8 +423,11 @@ Current topic: {topic}
         # Use slow style for beginners
         style = VoiceStyle.SLOW if profile.cefr_level in ["A1", "A2"] else VoiceStyle.FRIENDLY
 
+        # Strip pinyin/romaji from text for TTS (keep original for display)
+        tts_text = strip_pronunciation_guides(response_text)
+
         synthesis = await self.tts.synthesize(
-            response_text,
+            tts_text,
             language=profile.target_language,
             style=style
         )
@@ -422,8 +500,10 @@ Current topic: {topic}
         assistant_audio = None
         if generate_audio:
             style = VoiceStyle.SLOW if profile.cefr_level in ["A1", "A2"] else VoiceStyle.FRIENDLY
+            # Strip pinyin/romaji from text for TTS (keep original for display)
+            tts_text = strip_pronunciation_guides(response_text)
             synthesis = await self.tts.synthesize(
-                response_text,
+                tts_text,
                 language=profile.target_language,
                 style=style
             )

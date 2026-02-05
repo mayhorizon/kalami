@@ -1,8 +1,15 @@
 // Audio recording component with visual feedback
 import React, { useCallback, useEffect } from 'react';
-import { View, TouchableOpacity, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, TouchableOpacity, Text, StyleSheet, ActivityIndicator, Platform } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useAudio } from '@/hooks/useAudio';
+
+// Helper to trigger haptic feedback only on native platforms
+const triggerHaptic = async (style: Haptics.ImpactFeedbackStyle) => {
+  if (Platform.OS !== 'web') {
+    await Haptics.impactAsync(style);
+  }
+};
 
 interface AudioRecorderProps {
   onRecordingComplete?: (audioBase64: string, format: string) => void;
@@ -30,7 +37,7 @@ export function AudioRecorder({ onRecordingComplete, onError, disabled }: AudioR
     if (disabled) return;
 
     try {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      await triggerHaptic(Haptics.ImpactFeedbackStyle.Medium);
       await startRecording();
     } catch (error) {
       console.error('Failed to start recording:', error);
@@ -42,7 +49,7 @@ export function AudioRecorder({ onRecordingComplete, onError, disabled }: AudioR
     if (disabled) return;
 
     try {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      await triggerHaptic(Haptics.ImpactFeedbackStyle.Light);
       await stopRecording();
     } catch (error) {
       console.error('Failed to stop recording:', error);

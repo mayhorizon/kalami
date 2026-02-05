@@ -8,7 +8,6 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
-  Alert,
   ActivityIndicator,
   ScrollView,
 } from 'react-native';
@@ -31,7 +30,7 @@ const LANGUAGES = [
 
 export default function RegisterScreen() {
   const router = useRouter();
-  const { register, isLoading, clearError } = useAuthStore();
+  const { register, isLoading, error, clearError } = useAuthStore();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -39,38 +38,43 @@ export default function RegisterScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [nativeLanguage, setNativeLanguage] = useState('en');
   const [showLanguageSelector, setShowLanguageSelector] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   const handleRegister = async () => {
+    setLocalError(null);
+    clearError();
+
     // Validation
     if (!name || !email || !password || !confirmPassword) {
-      Alert.alert('Error', 'Please fill in all fields');
+      setLocalError('Please fill in all fields');
       return;
     }
 
     if (password !== confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
+      setLocalError('Passwords do not match');
       return;
     }
 
     if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
+      setLocalError('Password must be at least 6 characters');
       return;
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      Alert.alert('Error', 'Please enter a valid email address');
+      setLocalError('Please enter a valid email address');
       return;
     }
 
     try {
-      clearError();
       await register(email, password, name, nativeLanguage);
       router.replace('/(main)/conversation');
-    } catch (error: any) {
-      Alert.alert('Registration Failed', error.message || 'Unable to create account. Please try again.');
+    } catch (err: any) {
+      setLocalError(err.message || 'Unable to create account. Please try again.');
     }
   };
+
+  const displayError = localError || error;
 
   const handleBack = () => {
     router.back();
@@ -93,11 +97,17 @@ export default function RegisterScreen() {
           </View>
 
           <View style={styles.form}>
+            {displayError && (
+              <View style={styles.errorContainer}>
+                <Text style={styles.errorText}>{displayError}</Text>
+              </View>
+            )}
+
             <TextInput
               style={styles.input}
               placeholder="Full Name"
               value={name}
-              onChangeText={setName}
+              onChangeText={(text) => { setName(text); setLocalError(null); }}
               autoCapitalize="words"
               editable={!isLoading}
             />
@@ -106,7 +116,7 @@ export default function RegisterScreen() {
               style={styles.input}
               placeholder="Email"
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(text) => { setEmail(text); setLocalError(null); }}
               autoCapitalize="none"
               keyboardType="email-address"
               autoCorrect={false}
@@ -117,7 +127,7 @@ export default function RegisterScreen() {
               style={styles.input}
               placeholder="Password"
               value={password}
-              onChangeText={setPassword}
+              onChangeText={(text) => { setPassword(text); setLocalError(null); }}
               secureTextEntry
               autoCapitalize="none"
               autoCorrect={false}
@@ -128,7 +138,7 @@ export default function RegisterScreen() {
               style={styles.input}
               placeholder="Confirm Password"
               value={confirmPassword}
-              onChangeText={setConfirmPassword}
+              onChangeText={(text) => { setConfirmPassword(text); setLocalError(null); }}
               secureTextEntry
               autoCapitalize="none"
               autoCorrect={false}
@@ -231,6 +241,19 @@ const styles = StyleSheet.create({
   },
   form: {
     gap: 16,
+  },
+  errorContainer: {
+    backgroundColor: '#FFEBEE',
+    borderColor: '#F44336',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+  },
+  errorText: {
+    color: '#C62828',
+    fontSize: 14,
+    textAlign: 'center',
   },
   input: {
     backgroundColor: '#F5F5F5',

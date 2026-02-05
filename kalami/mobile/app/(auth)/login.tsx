@@ -8,7 +8,6 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -21,25 +20,30 @@ export default function LoginScreen() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [localError, setLocalError] = useState<string | null>(null);
 
   const handleLogin = async () => {
+    setLocalError(null);
+    clearError();
+
     if (!email || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
+      setLocalError('Please fill in all fields');
       return;
     }
 
     try {
-      clearError();
       await login(email, password);
       router.replace('/(main)/conversation');
-    } catch (error: any) {
-      Alert.alert('Login Failed', error.message || 'Unable to login. Please try again.');
+    } catch (err: any) {
+      setLocalError(err.message || 'Unable to login. Please try again.');
     }
   };
 
   const handleRegister = () => {
     router.push('/(auth)/register');
   };
+
+  const displayError = localError || error;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -54,11 +58,20 @@ export default function LoginScreen() {
           </View>
 
           <View style={styles.form}>
+            {displayError && (
+              <View style={styles.errorContainer}>
+                <Text style={styles.errorText}>{displayError}</Text>
+              </View>
+            )}
+
             <TextInput
               style={styles.input}
               placeholder="Email"
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(text) => {
+                setEmail(text);
+                setLocalError(null);
+              }}
               autoCapitalize="none"
               keyboardType="email-address"
               autoCorrect={false}
@@ -69,7 +82,10 @@ export default function LoginScreen() {
               style={styles.input}
               placeholder="Password"
               value={password}
-              onChangeText={setPassword}
+              onChangeText={(text) => {
+                setPassword(text);
+                setLocalError(null);
+              }}
               secureTextEntry
               autoCapitalize="none"
               autoCorrect={false}
@@ -132,6 +148,19 @@ const styles = StyleSheet.create({
   },
   form: {
     gap: 16,
+  },
+  errorContainer: {
+    backgroundColor: '#FFEBEE',
+    borderColor: '#F44336',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+  },
+  errorText: {
+    color: '#C62828',
+    fontSize: 14,
+    textAlign: 'center',
   },
   input: {
     backgroundColor: '#F5F5F5',
