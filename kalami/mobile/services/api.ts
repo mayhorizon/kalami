@@ -23,9 +23,11 @@ const LOCAL_IP = '192.168.1.250';
 
 // Use localhost for web, local IP for mobile devices
 const getBaseURL = () => {
-  if (!__DEV__) return 'https://api.kalami.app/api';
-  if (Platform.OS === 'web') return 'http://localhost:8000';
-  return `http://${LOCAL_IP}:8000`;
+  if (!__DEV__) {
+    return process.env.EXPO_PUBLIC_API_URL || 'https://api.kalami.app/api';
+  }
+  if (Platform.OS === 'web') return 'http://localhost:3000/api';
+  return `http://${LOCAL_IP}:3000/api`;
 };
 
 const API_BASE_URL = getBaseURL();

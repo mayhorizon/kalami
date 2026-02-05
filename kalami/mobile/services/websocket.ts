@@ -7,7 +7,9 @@ const LOCAL_IP = '192.168.1.250';
 
 // Use localhost for web, local IP for mobile devices
 const getWsURL = () => {
-  if (!__DEV__) return 'wss://api.kalami.app/ws';
+  if (!__DEV__) {
+    return process.env.EXPO_PUBLIC_WS_URL || 'wss://api.kalami.app/ws';
+  }
   if (Platform.OS === 'web') return 'ws://localhost:3000/ws';
   return `ws://${LOCAL_IP}:3000/ws`;
 };
